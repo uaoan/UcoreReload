@@ -1,0 +1,2 @@
+-keep class com.uaoan.ucorereload.patch.** { *; }
+-keep class com.uaoan.ucorereload.sdk.** { *; }

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- 热更新新增 Activity 的宿主壳。补丁 APK 里新增、但宿主 Manifest 没注册的 Activity 会转发到这里。 -->
+        <activity
+            android:name="com.uaoan.ucorereload.sdk.UcoreStubActivity"
+            android:exported="false" />
+    </application>
+</manifest>

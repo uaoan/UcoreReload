@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">UcoreReload</string>
+    <!-- 如果你想把 app 模块生成的完整 APK 当作“不安装补丁 APK”来加载，
+         新 APK 里也需要存在这些资源名；以后只要改这里的值并重新打 app APK 上传即可看到资源热更新。 -->
+    <string name="hot_title">完整 APK 资源热更新成功</string>
+    <string name="hot_message">这段文字来自下载后的完整 APK 资源文件。APK 没有安装，只是被宿主当作补丁包加载了 resources.arsc。</string>
+</resources>

@@ -1,0 +1,16 @@
+{
+    "enabled": false,
+    "patchCode": 0,
+    "patchName": "",
+    "patchUrl": "",
+    "sha256": "",
+    "packageName": "",
+    "targetHostPackage": "com.uaoan.ucorereload",
+    "minHostVersionCode": 1,
+    "entryClass": "",
+    "entryMethod": "onLoad",
+    "mergeDex": true,
+    "restartAfterApply": false,
+    "autoApply": true,
+    "message": "No patch configured"
+}
