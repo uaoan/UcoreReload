@@ -1,4 +1,14 @@
 jdk:
   - openjdk17
+
+# JitPack's default Gradle can be too old for Android Gradle Plugin 8.x.
+# Install/use Gradle 8.13 explicitly, then publish only the URlibrary module.
+before_install:
+  - sdk install gradle 8.13 || true
+  - sdk use gradle 8.13
+  - yes | sdkmanager --licenses >/dev/null || true
+  - sdkmanager "platforms;android-36" || true
+  - gradle --version
+
 install:
-  - gradle :URlibrary:publishReleasePublicationToMavenLocal
+  - gradle :URlibrary:publishReleasePublicationToMavenLocal --no-daemon --stacktrace -x test

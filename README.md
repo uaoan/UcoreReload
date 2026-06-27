@@ -1,2 +1,19 @@
 # UcoreReload
-UcoreReload 是一套 Android 热更新 Library + PHP 后台系统。客户端只需要填写 AppID，就会通过固定域名 http://ucore.uaoan.cn 自动检查版本、下载补丁 APK、加载 classes.dex、resources.arsc、layout、drawable、mipmap，并支持新增 Activity 代理跳转。
+
+Android no-install APK hot patch library. The reusable library module is `URlibrary`.
+
+## JitPack dependency
+
+After pushing this project to `https://github.com/uaoan/UcoreReload` and creating a tag such as `1.0.1`, add JitPack:
+
+```gradle
+maven { url 'https://jitpack.io' }
+```
+
+Then depend on:
+
+```gradle
+implementation 'com.github.uaoan:UcoreReload:1.0.1'
+```
+
+See `README_GITHUB_JITPACK.md` for full release steps and the fix for JitPack using an old Gradle version.
