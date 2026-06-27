@@ -1,2 +1,9 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+*.html linguist-language=Java
+# 前端、配置文件一并归类
+*.js linguist-language=Java
+*.css linguist-language=Java
+*.xml linguist-language=Java
+*.properties linguist-language=Java
+*.yml linguist-language=Java
