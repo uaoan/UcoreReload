@@ -99,7 +99,7 @@ dependencyResolutionManagement {
 
 ```gradle
 dependencies {
-    implementation 'com.github.uaoan:UcoreReload:1.0.0'
+    implementation 'com.github.uaoan:UcoreReload:1.0.1'
 }
 ```
 
@@ -344,7 +344,7 @@ Then add the library dependency:
 
 ```gradle
 dependencies {
-    implementation 'com.github.uaoan:UcoreReload:1.0.0'
+    implementation 'com.github.uaoan:UcoreReload:1.0.1'
 }
 ```
 
