@@ -1,0 +1,5 @@
+com.uaoan.ucorereload.patch:string/hot_message = 0x7f030001
+com.uaoan.ucorereload.patch:string/app_name = 0x7f030000
+com.uaoan.ucorereload.patch:string/hot_title = 0x7f030002
+com.uaoan.ucorereload.patch:layout/hot_card = 0x7f020000
+com.uaoan.ucorereload.patch:color/hot_color = 0x7f010000

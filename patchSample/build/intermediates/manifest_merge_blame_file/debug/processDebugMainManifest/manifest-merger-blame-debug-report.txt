@@ -1,0 +1,22 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.uaoan.ucorereload.patch"
+4    android:versionCode="1"
+5    android:versionName="hotfix-1" >
+6
+7    <uses-sdk
+8        android:minSdkVersion="24"
+9        android:targetSdkVersion="36" />
+10
+11    <application
+11-->C:\Android\AndroidStudioProjects\UcoreReload\patchSample\src\main\AndroidManifest.xml:3:5-6:38
+12        android:allowBackup="false"
+12-->C:\Android\AndroidStudioProjects\UcoreReload\patchSample\src\main\AndroidManifest.xml:4:9-36
+13        android:debuggable="true"
+14        android:extractNativeLibs="false"
+15        android:label="UcoreReloadPatch"
+15-->C:\Android\AndroidStudioProjects\UcoreReload\patchSample\src\main\AndroidManifest.xml:5:9-41
+16        android:supportsRtl="true" />
+16-->C:\Android\AndroidStudioProjects\UcoreReload\patchSample\src\main\AndroidManifest.xml:6:9-35
+17
+18</manifest>

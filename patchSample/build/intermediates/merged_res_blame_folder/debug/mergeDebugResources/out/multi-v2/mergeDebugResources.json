@@ -1,0 +1,43 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.uaoan.ucorereload.patch.patchSample-debug-4:/values_values.arsc.flat",
+            "map": [
+                {
+                    "source": "C:\\Android\\AndroidStudioProjects\\UcoreReload\\patchSample\\src\\main\\res\\values\\strings.xml",
+                    "from": {
+                        "startLines": "1,3,2",
+                        "startColumns": "4,4,4",
+                        "startOffsets": "16,117,71",
+                        "endColumns": "54,128,45",
+                        "endOffsets": "66,241,112"
+                    },
+                    "to": {
+                        "startLines": "3,4,5",
+                        "startColumns": "4,4,4",
+                        "startOffsets": "99,154,283",
+                        "endColumns": "54,128,45",
+                        "endOffsets": "149,278,324"
+                    }
+                },
+                {
+                    "source": "C:\\Android\\AndroidStudioProjects\\UcoreReload\\patchSample\\src\\main\\res\\values\\colors.xml",
+                    "from": {
+                        "startLines": "1",
+                        "startColumns": "4",
+                        "startOffsets": "16",
+                        "endColumns": "43",
+                        "endOffsets": "55"
+                    },
+                    "to": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "43",
+                        "endOffsets": "94"
+                    }
+                }
+            ]
+        }
+    ]
+}

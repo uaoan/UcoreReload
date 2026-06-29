@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="hot_color">#1565C0</color>
+    <string name="app_name">UcoreReload Patch</string>
+    <string name="hot_message">这段文字来自补丁 APK 的 res/values/strings.xml。补丁 APK 没有安装，只是被宿主加载了 classes.dex 和 resources.arsc。</string>
+    <string name="hot_title">资源热更新成功</string>
+</resources>

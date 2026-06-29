@@ -1,0 +1,4 @@
+com.uaoan.ucorereload.patch.test.patchSample-androidTest-0 C:\Android\AndroidStudioProjects\UcoreReload\patchSample\build\generated\res\resValues\androidTest\debug
+com.uaoan.ucorereload.patch.test.patchSample-mergeDebugAndroidTestResources-1 C:\Android\AndroidStudioProjects\UcoreReload\patchSample\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\merged.dir
+com.uaoan.ucorereload.patch.test.patchSample-mergeDebugAndroidTestResources-2 C:\Android\AndroidStudioProjects\UcoreReload\patchSample\build\intermediates\incremental\debugAndroidTest\mergeDebugAndroidTestResources\stripped.dir
+com.uaoan.ucorereload.patch.test.patchSample-debugAndroidTest-3 C:\Android\AndroidStudioProjects\UcoreReload\patchSample\build\intermediates\merged_res\debugAndroidTest\mergeDebugAndroidTestResources

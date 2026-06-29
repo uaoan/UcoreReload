@@ -38,6 +38,15 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.security.MessageDigest;
 import java.util.Locale;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 import dalvik.system.BaseDexClassLoader;
 import dalvik.system.DexClassLoader;
@@ -194,7 +203,10 @@ public final class UcoreReload {
             // 但同名 MainActivity / R / 普通业务类会优先来自下载后的 APK。
             // 不再使用自定义 Instrumentation 强行 newActivity，避免部分机型启动闪退。
             forceLoadHostSdkClasses(appContext);
-            mergeSavedPatchDexElements(appContext, handle.getPatchFile());
+            // 不再把补丁 dexElements 合并进宿主 PathClassLoader。
+            // 合并模式会让补丁新增的三方库/AAR 与宿主类空间混在一起，
+            // 宿主缺依赖或版本不一致时容易 ClassNotFound/NoSuchMethod/UnsatisfiedLinkError。
+            // 统一让补丁代码、补丁依赖、补丁 Activity 都通过独立的 ChildFirstDexClassLoader 加载。
             installInstrumentationHook(appContext);
             return true;
         } catch (Throwable throwable) {
@@ -432,11 +444,9 @@ public final class UcoreReload {
         try {
             PatchHandle saved = loadSavedPatch(application);
             // iApp / 部分第三方工具中 attachBaseContext 早期阶段可能拿不到完整 ApplicationContext。
-            // 如果早期合并没有成功，这里在 Application.onCreate 再补合并一次；
-            // 这样后续点击跳转到补丁 APK 里的新增 Activity 时，ClassLoader 能找到目标类。
+            // 这里仅恢复 currentPatch 与补丁资源/类加载器；不再合并 dex 到宿主 ClassLoader。
             if (saved != null && saved.getPatchFile() != null) {
                 forceLoadHostSdkClasses(application);
-                mergeSavedPatchDexElements(application, saved.getPatchFile());
             }
         } catch (Throwable throwable) {
             Log.w("UcoreReload", "load saved patch failed", throwable);
@@ -567,19 +577,54 @@ public final class UcoreReload {
         if (activity == null || handle == null || handle.getResources() == null) {
             return false;
         }
-        if (activity instanceof UcoreActivity) {
-            return true;
-        }
-        // 最稳定的方式：热更新 Activity 继承 UcoreActivity。
-        // 这里为普通 Activity/AppCompatActivity 做兜底反射，把 Activity 与 ContextImpl 的 mResources 指向补丁 Resources。
-        // 不同 Android 版本字段可能不存在，所以全部 try/catch；失败时不会阻塞 Activity 创建。
         try {
-            replaceResourcesField(activity, handle.getResources());
+            // 关键顺序不能反：必须先把 Activity 的 baseContext/resources/classLoader 切到补丁环境，
+            // 再重建 Theme。否则 AppCompatActivity 会用宿主 Resources 创建 Theme，
+            // 补丁 APK 里新增的 androidx/appcompat/aar 资源属性不会进入 Theme，最终报：
+            // "You need to use a Theme.AppCompat theme"。
             Context base = getBaseContext(activity);
+            if (base != null && !(base instanceof HotPatchContext)) {
+                setBaseContext(activity, new HotPatchContext(base, handle));
+                base = getBaseContext(activity);
+            }
+
+            replaceResourcesField(activity, handle.getResources());
             replaceResourcesField(base, handle.getResources());
+            clearCachedInflater(activity);
+            clearCachedInflater(base);
+            rebuildPatchTheme(activity, handle);
             return true;
-        } catch (Throwable ignored) {
+        } catch (Throwable throwable) {
+            debug("THEME", "apply patch resources/theme failed: " + activity.getClass().getName(), throwable);
             return false;
+        }
+    }
+
+    private static void rebuildPatchTheme(Activity activity, PatchHandle handle) {
+        if (activity == null || handle == null) {
+            return;
+        }
+        int themeResId = handle.getThemeResIdForActivity(activity.getClass().getName());
+        if (themeResId == 0) {
+            return;
+        }
+        try {
+            // ContextThemeWrapper/Activity 会缓存 mTheme。旧 mTheme 一旦用宿主 Resources 建出来，
+            // 后面再 setTheme 同一个 id 也不会彻底重建，所以这里必须清空缓存字段。
+            clearThemeCache(activity);
+            Context base = getBaseContext(activity);
+            clearThemeCache(base);
+            activity.setTheme(themeResId);
+            Resources.Theme theme = activity.getTheme();
+            if (theme != null) {
+                try {
+                    theme.applyStyle(themeResId, true);
+                } catch (Throwable ignored) {
+                }
+            }
+            debug("THEME", "patch theme applied: activity=" + activity.getClass().getName() + " theme=" + themeResId, null);
+        } catch (Throwable throwable) {
+            debug("THEME", "apply patch theme failed: " + activity.getClass().getName() + " theme=" + themeResId, throwable);
         }
     }
 
@@ -981,11 +1026,65 @@ public final class UcoreReload {
         return null;
     }
 
+
+    private static boolean setBaseContext(ContextWrapper wrapper, Context base) {
+        if (wrapper == null || base == null) {
+            return false;
+        }
+        try {
+            Field field = ContextWrapper.class.getDeclaredField("mBase");
+            field.setAccessible(true);
+            field.set(wrapper, base);
+            return true;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
     private static void replaceResourcesField(Object target, Resources resources) {
         if (target == null || resources == null) {
             return;
         }
         setFieldIfExists(target, "mResources", resources);
+    }
+
+    private static void clearThemeCache(Object target) {
+        if (target == null) {
+            return;
+        }
+        setFieldIfExists(target, "mTheme", null);
+        setIntFieldIfExists(target, "mThemeResource", 0);
+    }
+
+    private static void clearCachedInflater(Object target) {
+        if (target == null) {
+            return;
+        }
+        setFieldIfExists(target, "mInflater", null);
+    }
+
+    private static boolean setIntFieldIfExists(Object target, String fieldName, int value) {
+        if (target == null || TextUtils.isEmpty(fieldName)) {
+            return false;
+        }
+        Class<?> clazz = target.getClass();
+        while (clazz != null && clazz != Object.class) {
+            try {
+                Field field = clazz.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                if (field.getType() == Integer.TYPE) {
+                    field.setInt(target, value);
+                    return true;
+                }
+                field.set(target, value);
+                return true;
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
+            } catch (Throwable e) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private static boolean setFieldIfExists(Object target, String fieldName, Object value) {
@@ -1048,16 +1147,12 @@ public final class UcoreReload {
             //noinspection ResultOfMethodCallIgnored
             optDir.mkdirs();
         }
-        File libDir = new File(context.getDir("ucore_reload", Context.MODE_PRIVATE), "native_libs");
-        if (!libDir.exists()) {
-            //noinspection ResultOfMethodCallIgnored
-            libDir.mkdirs();
-        }
+        String nativeLibrarySearchPath = prepareNativeLibrarySearchPath(context, patchFile, info);
 
         DexClassLoader loader = new ChildFirstDexClassLoader(
                 patchFile.getAbsolutePath(),
                 optDir.getAbsolutePath(),
-                libDir.getAbsolutePath(),
+                nativeLibrarySearchPath,
                 context.getClassLoader(),
                 context.getPackageName() + ".",
                 new String[]{
@@ -1074,7 +1169,14 @@ public final class UcoreReload {
         // 不再自动合并 dexElements，避免下载 APK 里的 MainActivity 覆盖宿主代理入口。
 
         Resources resources = createResources(context, patchFile);
-        PatchHandle handle = new PatchHandle(context, patchFile, loader, resources, patchPackage, info);
+        int applicationThemeResId = resolveApplicationThemeResId(packageInfo);
+        if (applicationThemeResId == 0) {
+            applicationThemeResId = resolveFallbackAppCompatThemeResId(resources, patchPackage);
+        }
+        Map<String, Integer> activityThemeResIds = resolveActivityThemeResIds(packageInfo, patchPackage);
+        PatchHandle handle = new PatchHandle(context, patchFile, loader, resources, patchPackage, info,
+                applicationThemeResId, activityThemeResIds);
+        debug("THEME", "patch theme app=" + applicationThemeResId + " activities=" + activityThemeResIds.size(), null);
 
         synchronized (LOCK) {
             currentPatch = handle;
@@ -1202,6 +1304,260 @@ public final class UcoreReload {
         return result;
     }
 
+
+    private static String prepareNativeLibrarySearchPath(Context context, File patchFile, UpdateInfo info) throws Exception {
+        File root = new File(context.getDir("ucore_reload", Context.MODE_PRIVATE), "native_libs");
+        String key = "patch_" + (info == null ? 0 : info.getPatchCode()) + "_" + Math.abs(patchFile.getAbsolutePath().hashCode());
+        File libRoot = new File(root, key);
+        if (!libRoot.exists()) {
+            //noinspection ResultOfMethodCallIgnored
+            libRoot.mkdirs();
+        }
+
+        List<File> searchDirs = extractNativeLibraries(patchFile, libRoot);
+
+        // 把宿主已安装的 native 目录也作为兜底。宿主没有相关 so 时不影响；宿主有时可避免重复下载包缺少 so 直接崩。
+        addHostNativeLibraryDirs(context, searchDirs);
+
+        String searchPath = joinNativeLibraryDirs(searchDirs);
+        debug("SO", "native library searchPath=" + searchPath, null);
+        return searchPath;
+    }
+
+    private static List<File> extractNativeLibraries(File patchFile, File libRoot) throws Exception {
+        List<File> result = new ArrayList<>();
+        if (patchFile == null || libRoot == null) {
+            return result;
+        }
+        deleteChildren(libRoot);
+
+        String[] compatibleAbis = getProcessCompatibleAbis();
+        if (compatibleAbis == null || compatibleAbis.length == 0) {
+            compatibleAbis = Build.SUPPORTED_ABIS;
+        }
+        if (compatibleAbis == null || compatibleAbis.length == 0) {
+            return result;
+        }
+
+        Map<String, List<String>> copiedByAbi = new LinkedHashMap<>();
+        Map<String, List<String>> allSoByAbi = new LinkedHashMap<>();
+
+        ZipFile zipFile = new ZipFile(patchFile);
+        try {
+            // 先扫描 APK 里到底有哪些 ABI / so，便于 dumpDebugInfo 定位“补丁没打进 so”的问题。
+            Enumeration<? extends ZipEntry> scanEntries = zipFile.entries();
+            while (scanEntries.hasMoreElements()) {
+                ZipEntry entry = scanEntries.nextElement();
+                String name = entry == null ? null : entry.getName();
+                if (entry == null || entry.isDirectory() || name == null || !name.startsWith("lib/") || !name.endsWith(".so")) {
+                    continue;
+                }
+                String remain = name.substring("lib/".length());
+                int slash = remain.indexOf('/');
+                if (slash <= 0 || slash >= remain.length() - 1) {
+                    continue;
+                }
+                String abi = remain.substring(0, slash);
+                String soName = remain.substring(slash + 1);
+                List<String> list = allSoByAbi.get(abi);
+                if (list == null) {
+                    list = new ArrayList<>();
+                    allSoByAbi.put(abi, list);
+                }
+                list.add(soName);
+            }
+
+            boolean flatCopied = false;
+            for (String abi : compatibleAbis) {
+                if (TextUtils.isEmpty(abi)) {
+                    continue;
+                }
+                String prefix = "lib/" + abi + "/";
+                File abiDir = new File(libRoot, abi);
+                boolean copied = false;
+                List<String> copiedNames = new ArrayList<>();
+
+                Enumeration<? extends ZipEntry> entries = zipFile.entries();
+                while (entries.hasMoreElements()) {
+                    ZipEntry entry = entries.nextElement();
+                    String name = entry.getName();
+                    if (entry.isDirectory() || name == null || !name.startsWith(prefix) || !name.endsWith(".so")) {
+                        continue;
+                    }
+                    String soName = name.substring(prefix.length());
+                    if (soName.contains("/")) {
+                        continue;
+                    }
+                    if (!abiDir.exists()) {
+                        //noinspection ResultOfMethodCallIgnored
+                        abiDir.mkdirs();
+                    }
+                    File out = new File(abiDir, soName);
+                    copyZipEntry(zipFile, entry, out);
+                    copiedNames.add(soName);
+                    copied = true;
+
+                    // 兼容旧版本：第一组可用 ABI 也复制一份到根目录。
+                    // DexClassLoader 的 librarySearchPath 使用根目录时仍能找到。
+                    if (!flatCopied) {
+                        copyZipEntry(zipFile, entry, new File(libRoot, soName));
+                    }
+                }
+
+                if (copied) {
+                    if (!result.contains(libRoot)) {
+                        result.add(libRoot);
+                    }
+                    result.add(abiDir);
+                    copiedByAbi.put(abi, copiedNames);
+                    flatCopied = true;
+                }
+            }
+        } finally {
+            zipFile.close();
+        }
+
+        debug("SO", "process64=" + isCurrentProcess64Bit()
+                + " compatibleAbis=" + Arrays.toString(compatibleAbis)
+                + " apkSo=" + allSoByAbi
+                + " copied=" + copiedByAbi
+                + " root=" + libRoot.getAbsolutePath(), null);
+
+        if (result.isEmpty() && !allSoByAbi.isEmpty()) {
+            debug("SO", "APK contains native so, but none matches current process ABI. 64-bit process cannot load 32-bit .so; add matching arm64-v8a/armeabi-v7a dependency in patch.", null);
+        }
+        return result;
+    }
+
+    private static void copyZipEntry(ZipFile zipFile, ZipEntry entry, File out) throws Exception {
+        File parent = out.getParentFile();
+        if (parent != null && !parent.exists()) {
+            //noinspection ResultOfMethodCallIgnored
+            parent.mkdirs();
+        }
+        InputStream in = zipFile.getInputStream(entry);
+        try {
+            FileOutputStream fos = new FileOutputStream(out);
+            try {
+                byte[] buffer = new byte[8192];
+                int len;
+                while ((len = in.read(buffer)) != -1) {
+                    fos.write(buffer, 0, len);
+                }
+            } finally {
+                fos.close();
+            }
+        } finally {
+            in.close();
+        }
+        //noinspection ResultOfMethodCallIgnored
+        out.setReadOnly();
+    }
+
+    private static String[] getProcessCompatibleAbis() {
+        try {
+            if (Build.VERSION.SDK_INT >= 21) {
+                boolean is64 = isCurrentProcess64Bit();
+                String[] abis = is64 ? Build.SUPPORTED_64_BIT_ABIS : Build.SUPPORTED_32_BIT_ABIS;
+                if (abis != null && abis.length > 0) {
+                    return abis;
+                }
+                return Build.SUPPORTED_ABIS;
+            }
+        } catch (Throwable ignored) {
+        }
+        if (!TextUtils.isEmpty(Build.CPU_ABI2)) {
+            return new String[]{Build.CPU_ABI, Build.CPU_ABI2};
+        }
+        return new String[]{Build.CPU_ABI};
+    }
+
+    private static boolean isCurrentProcess64Bit() {
+        try {
+            if (Build.VERSION.SDK_INT >= 23) {
+                return android.os.Process.is64Bit();
+            }
+        } catch (Throwable ignored) {
+        }
+        String vm = System.getProperty("os.arch");
+        return vm != null && vm.contains("64");
+    }
+
+    private static void addHostNativeLibraryDirs(Context context, List<File> dirs) {
+        if (context == null || dirs == null) {
+            return;
+        }
+        try {
+            ApplicationInfo ai = context.getApplicationInfo();
+            addDirIfValid(dirs, ai == null ? null : ai.nativeLibraryDir);
+            if (Build.VERSION.SDK_INT >= 21 && ai != null) {
+                try {
+                    Field f = ApplicationInfo.class.getField("secondaryNativeLibraryDir");
+                    Object v = f.get(ai);
+                    if (v instanceof String) {
+                        addDirIfValid(dirs, (String) v);
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable t) {
+            debug("SO", "addHostNativeLibraryDirs failed", t);
+        }
+    }
+
+    private static void addDirIfValid(List<File> dirs, String path) {
+        if (dirs == null || TextUtils.isEmpty(path)) {
+            return;
+        }
+        File dir = new File(path);
+        if (!dir.exists() || !dir.isDirectory()) {
+            return;
+        }
+        for (File item : dirs) {
+            if (item != null && item.getAbsolutePath().equals(dir.getAbsolutePath())) {
+                return;
+            }
+        }
+        dirs.add(dir);
+    }
+
+    private static String joinNativeLibraryDirs(List<File> dirs) {
+        if (dirs == null || dirs.isEmpty()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (File dir : dirs) {
+            if (dir == null) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append(File.pathSeparator);
+            }
+            sb.append(dir.getAbsolutePath());
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private static void deleteChildren(File dir) {
+        if (dir == null || !dir.exists() || !dir.isDirectory()) {
+            return;
+        }
+        File[] files = dir.listFiles();
+        if (files == null) {
+            return;
+        }
+        for (File file : files) {
+            if (file == null) {
+                continue;
+            }
+            if (file.isDirectory()) {
+                deleteChildren(file);
+            }
+            //noinspection ResultOfMethodCallIgnored
+            file.delete();
+        }
+    }
+
     private static Resources createResources(Context context, File patchFile) throws Exception {
         AssetManager assetManager = AssetManager.class.getDeclaredConstructor().newInstance();
         Method addAssetPath = AssetManager.class.getDeclaredMethod("addAssetPath", String.class);
@@ -1246,17 +1602,85 @@ public final class UcoreReload {
         return info.versionCode;
     }
 
+    private static int resolveApplicationThemeResId(PackageInfo packageInfo) {
+        try {
+            if (packageInfo != null && packageInfo.applicationInfo != null) {
+                return packageInfo.applicationInfo.theme;
+            }
+        } catch (Throwable ignored) {
+        }
+        return 0;
+    }
+
+    private static int resolveFallbackAppCompatThemeResId(Resources resources, String patchPackage) {
+        if (resources == null || TextUtils.isEmpty(patchPackage)) {
+            return 0;
+        }
+        String[] names = new String[]{
+                "AppTheme",
+                "Theme.AppCompat.Light.NoActionBar",
+                "Theme.AppCompat.Light",
+                "Theme.AppCompat.NoActionBar",
+                "Theme.AppCompat",
+                "Theme.MaterialComponents.DayNight.NoActionBar",
+                "Theme.MaterialComponents.Light.NoActionBar"
+        };
+        for (String name : names) {
+            try {
+                int id = resources.getIdentifier(name, "style", patchPackage);
+                if (id != 0) {
+                    debug("THEME", "fallback patch theme found: " + name + "=" + id, null);
+                    return id;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return 0;
+    }
+
+    private static Map<String, Integer> resolveActivityThemeResIds(PackageInfo packageInfo, String patchPackage) {
+        Map<String, Integer> result = new HashMap<>();
+        if (packageInfo == null || packageInfo.activities == null) {
+            return result;
+        }
+        for (ActivityInfo activity : packageInfo.activities) {
+            if (activity == null || TextUtils.isEmpty(activity.name) || activity.theme == 0) {
+                continue;
+            }
+            String normalized = normalizeActivityClassName(activity.name, patchPackage);
+            if (!TextUtils.isEmpty(normalized)) {
+                result.put(normalized, activity.theme);
+            }
+            result.put(activity.name, activity.theme);
+        }
+        return result;
+    }
+
+    private static String normalizeActivityClassName(String name, String packageName) {
+        if (TextUtils.isEmpty(name)) {
+            return name;
+        }
+        if (name.startsWith(".")) {
+            return TextUtils.isEmpty(packageName) ? name.substring(1) : packageName + name;
+        }
+        if (name.indexOf('.') < 0 && !TextUtils.isEmpty(packageName)) {
+            return packageName + "." + name;
+        }
+        return name;
+    }
+
     private static PackageInfo getArchivePackageInfo(Context context, File patchFile) {
         PackageManager pm = context.getPackageManager();
+        int flags = PackageManager.GET_META_DATA | PackageManager.GET_ACTIVITIES;
         if (Build.VERSION.SDK_INT >= 33) {
             PackageInfo info = pm.getPackageArchiveInfo(
                     patchFile.getAbsolutePath(),
-                    PackageManager.PackageInfoFlags.of(PackageManager.GET_META_DATA)
+                    PackageManager.PackageInfoFlags.of(flags)
             );
             fixArchiveInfo(info, patchFile);
             return info;
         } else {
-            PackageInfo info = pm.getPackageArchiveInfo(patchFile.getAbsolutePath(), PackageManager.GET_META_DATA);
+            PackageInfo info = pm.getPackageArchiveInfo(patchFile.getAbsolutePath(), flags);
             fixArchiveInfo(info, patchFile);
             return info;
         }
@@ -1267,6 +1691,14 @@ public final class UcoreReload {
             ApplicationInfo appInfo = info.applicationInfo;
             appInfo.sourceDir = patchFile.getAbsolutePath();
             appInfo.publicSourceDir = patchFile.getAbsolutePath();
+            if (info.activities != null) {
+                for (ActivityInfo activity : info.activities) {
+                    if (activity != null && activity.applicationInfo != null) {
+                        activity.applicationInfo.sourceDir = patchFile.getAbsolutePath();
+                        activity.applicationInfo.publicSourceDir = patchFile.getAbsolutePath();
+                    }
+                }
+            }
         }
     }
 

@@ -1,0 +1,7 @@
+R_DEF: Internal format may change without notice
+local
+color hot_color
+layout hot_card
+string app_name
+string hot_message
+string hot_title

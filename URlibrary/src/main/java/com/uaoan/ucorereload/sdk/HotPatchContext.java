@@ -32,7 +32,17 @@ public class HotPatchContext extends ContextWrapper {
             theme = getResources().newTheme();
             Resources.Theme baseTheme = super.getTheme();
             if (baseTheme != null) {
-                theme.setTo(baseTheme);
+                try {
+                    theme.setTo(baseTheme);
+                } catch (Throwable ignored) {
+                }
+            }
+            int themeResId = handle.getApplicationThemeResId();
+            if (themeResId != 0) {
+                try {
+                    theme.applyStyle(themeResId, true);
+                } catch (Throwable ignored) {
+                }
             }
         }
         return theme;

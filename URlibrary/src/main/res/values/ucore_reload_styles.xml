@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 给 UcoreStubActivity 一个兜底 AppCompat 主题，避免宿主默认主题不是 AppCompat 时代理壳启动崩溃。 -->
+    <style name="UcoreReloadTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowNoTitle">true</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="windowActionBar">false</item>
+    </style>
+</resources>

@@ -27,6 +27,7 @@ import androidx.appcompat.app.AppCompatActivity;
  */
 public class UcoreActivity extends AppCompatActivity {
     private Resources.Theme patchTheme;
+    private int patchThemeResId;
 
     @Override
     protected void attachBaseContext(Context newBase) {
@@ -80,7 +81,8 @@ public class UcoreActivity extends AppCompatActivity {
     public Resources.Theme getTheme() {
         PatchHandle handle = UcoreReload.getCurrentPatch();
         if (handle != null && handle.getResources() != null) {
-            if (patchTheme == null) {
+            int themeResId = handle.getThemeResIdForActivity(getClass().getName());
+            if (patchTheme == null || patchThemeResId != themeResId) {
                 patchTheme = handle.getResources().newTheme();
                 try {
                     Resources.Theme hostTheme = super.getTheme();
@@ -89,10 +91,24 @@ public class UcoreActivity extends AppCompatActivity {
                     }
                 } catch (Throwable ignored) {
                 }
+                if (themeResId != 0) {
+                    try {
+                        patchTheme.applyStyle(themeResId, true);
+                    } catch (Throwable ignored) {
+                    }
+                }
+                patchThemeResId = themeResId;
             }
             return patchTheme;
         }
         return super.getTheme();
+    }
+
+    @Override
+    public void setTheme(int resid) {
+        super.setTheme(resid);
+        patchTheme = null;
+        patchThemeResId = 0;
     }
 
     @Override

@@ -12,6 +12,9 @@ import android.view.ViewGroup;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 
 public class PatchHandle {
     private final Context hostContext;
@@ -20,6 +23,8 @@ public class PatchHandle {
     private final Resources resources;
     private final String packageName;
     private final UpdateInfo updateInfo;
+    private final int applicationThemeResId;
+    private final Map<String, Integer> activityThemeResIds;
     private final HotPatchContext patchContext;
 
     PatchHandle(Context hostContext,
@@ -27,13 +32,21 @@ public class PatchHandle {
                 ClassLoader classLoader,
                 Resources resources,
                 String packageName,
-                UpdateInfo updateInfo) {
+                UpdateInfo updateInfo,
+                int applicationThemeResId,
+                Map<String, Integer> activityThemeResIds) {
         this.hostContext = hostContext.getApplicationContext();
         this.patchFile = patchFile;
         this.classLoader = classLoader;
         this.resources = resources;
         this.packageName = packageName;
         this.updateInfo = updateInfo;
+        this.applicationThemeResId = applicationThemeResId;
+        if (activityThemeResIds == null || activityThemeResIds.isEmpty()) {
+            this.activityThemeResIds = Collections.emptyMap();
+        } else {
+            this.activityThemeResIds = Collections.unmodifiableMap(new HashMap<>(activityThemeResIds));
+        }
         this.patchContext = new HotPatchContext(hostContext, this);
     }
 
@@ -67,6 +80,26 @@ public class PatchHandle {
 
     public UpdateInfo getUpdateInfo() {
         return updateInfo;
+    }
+
+
+    /** 补丁 APK AndroidManifest.xml 里 application 的 theme。 */
+    public int getApplicationThemeResId() {
+        return applicationThemeResId;
+    }
+
+    /**
+     * 获取补丁 Activity 的 theme。优先使用补丁 Manifest 中对应 Activity 的 theme，
+     * 没有声明时回退到补丁 application theme。
+     */
+    public int getThemeResIdForActivity(String activityClassName) {
+        if (activityClassName != null && activityClassName.length() > 0) {
+            Integer id = activityThemeResIds.get(activityClassName);
+            if (id != null && id != 0) {
+                return id;
+            }
+        }
+        return applicationThemeResId;
     }
 
     public Class<?> loadClass(String className) throws ClassNotFoundException {
